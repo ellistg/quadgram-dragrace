@@ -1,0 +1,42 @@
+#version 450
+
+layout(local_size_x = 4) in;
+
+layout(std430, push_constant) uniform Step {
+	uint step;
+};
+layout(std430, binding = 0) buffer Quadgrams {
+	uint quadgrams[];
+};
+layout(std430, binding = 1) buffer Text {
+	uint text[];
+};
+layout(std430, binding = 2) buffer Result {
+	uint result;
+};
+
+uint coefs[4] = { 17576, 676, 26, 1 };
+shared uint qg_idx;
+
+void main() {
+	uint ch_idx = gl_WorkGroupID.x * step + gl_LocalInvocationID.x;
+
+	// TODO: try passing text as a u32 array so we don't need to do this unpacking
+	// FIXME: this depends on GPU being little-endian
+	uint word = text[ch_idx >> 2];
+	uint byte_idx = 8 * (ch_idx & 3);
+	uint ch = (word >> byte_idx) & 0xff;
+
+	if (gl_LocalInvocationIndex == 0) {
+		qg_idx = 0;
+	}
+	memoryBarrierShared();
+
+	atomicAdd(qg_idx, coefs[gl_LocalInvocationIndex] * ch);
+
+	memoryBarrierShared();
+	barrier();
+	if (gl_LocalInvocationIndex == 0) {
+		atomicAdd(result, quadgrams[qg_idx]);
+	}
+}
